@@ -1,0 +1,36 @@
+# UI
+streamlit
+python-dotenv
+
+# Core RAG
+langchain
+langchain-community
+langchain-groq
+
+# Vector DB
+faiss-cpu
+
+# Embedding
+sentence-transformers
+transformers
+torch
+
+# PDF processing
+pdfplumber
+pypdf
+
+python-docx
+openpyxl
+python-pptx
+
+# OCR 
+pytesseract
+Pillow
+pdf2image
+
+# Data processing
+numpy
+pandas
+
+# Optional 
+rank-bm25
