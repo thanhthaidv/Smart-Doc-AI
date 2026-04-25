@@ -2,32 +2,62 @@ import os
 
 import pandas as pd
 from docx import Document as DocxDocument
-from langchain_community.document_loaders import PDFPlumberLoader
+import pdfplumber
 from langchain_core.documents import Document
-from pptx import Presentation
-
-from modules.ingestion.ocr import detect_pdf_has_images, detect_pdf_has_text, ocr_pdf_to_text
+from modules.ingestion.ocr import (
+    detect_pdf_has_images,
+    detect_pdf_has_text,
+    ocr_pdf_pages_to_text,
+)
 
 def load_pdf(file_path: str, use_ocr_if_needed: bool = True):
-    """Tải tài liệu PDF, nhận dạng ký tự các tệp đã quét khi cần."""
-    has_images = detect_pdf_has_images(file_path)
+    has_images = detect_pdf_has_images(file_path, max_pages=100) # 
+    has_text = detect_pdf_has_text(file_path) # 
+    documents = []
 
-    if use_ocr_if_needed and not detect_pdf_has_text(file_path):
-        text = ocr_pdf_to_text(file_path)
-        return [
-            Document(
-                page_content=text,
-                metadata={"source": file_path, "ocr": True, "has_images": has_images},
+    # Sử dụng pdfplumber mở trực tiếp để kiểm soát từng trang
+    with pdfplumber.open(file_path) as pdf:
+        # Nếu cần OCR, thực hiện một lần để lấy danh sách text từng trang
+        ocr_pages = []
+        if use_ocr_if_needed and (not has_text or has_images):
+            ocr_pages = ocr_pdf_pages_to_text(file_path) # 
+
+        for idx, page in enumerate(pdf.pages):
+            page_number = idx + 1
+            # Trích xuất text layer (nếu có)
+            page_text = (page.extract_text() or "").strip() # 
+            
+            # Lấy text OCR tương ứng với trang này
+            current_ocr_text = ocr_pages[idx] if idx < len(ocr_pages) else "" # 
+            
+            # Hợp nhất nội dung: Ưu tiên Text layer, bổ sung OCR nếu có ảnh
+            final_content = page_text
+            is_ocr_used = False
+            
+            if use_ocr_if_needed and current_ocr_text.strip():
+                if not final_content: # Trang trắng/thuần ảnh như trang 5 của bạn
+                    final_content = current_ocr_text
+                else: # Trang hybrid (vừa có chữ vừa có ảnh)
+                    final_content = f"{final_content}\n\n[OCR Content]:\n{current_ocr_text}"
+                is_ocr_used = True
+
+            if not final_content.strip():
+                continue
+
+            # Tạo Document với metadata chính xác tuyệt đối theo vòng lặp
+            documents.append(
+                Document(
+                    page_content=final_content,
+                    metadata={
+                        "source": file_path,
+                        "page": page_number,
+                        "chunk_id": page_number,
+                        "ocr": is_ocr_used,
+                        "has_images": has_images
+                    }
+                )
             )
-        ]
-
-    loader = PDFPlumberLoader(file_path)
-    documents = loader.load()
-    for idx, doc in enumerate(documents, start=1):
-        doc.metadata["has_images"] = has_images
-        doc.metadata.setdefault("source", file_path)
-        doc.metadata.setdefault("page", doc.metadata.get("page") or doc.metadata.get("page_number"))
-        doc.metadata.setdefault("chunk_id", idx)
+            
     return documents
 
 
@@ -51,45 +81,6 @@ def load_docx(file_path: str):
     ]
 
 
-def load_xlsx(file_path: str):
-    """Tải Excel và trích xuất văn bản từ tất cả các sheet."""
-    sheets = pd.read_excel(file_path, sheet_name=None)
-    documents = []
-    for idx, (sheet_name, df) in enumerate(sheets.items(), start=1):
-        text = df.to_string(index=False)
-        documents.append(
-            Document(
-                page_content=text,
-                metadata={
-                    "source": file_path,
-                    "type": "xlsx",
-                    "sheet": sheet_name,
-                    "chunk_id": idx,
-                },
-            )
-        )
-    return documents
-
-
-def load_pptx(file_path: str):
-    """Tải PPTX và trích xuất văn bản từ các slide."""
-    presentation = Presentation(file_path)
-    documents = []
-    for idx, slide in enumerate(presentation.slides, start=1):
-        texts = []
-        for shape in slide.shapes:
-            if hasattr(shape, "text") and shape.text.strip():
-                texts.append(shape.text.strip())
-        if texts:
-            documents.append(
-                Document(
-                    page_content="\n".join(texts),
-                    metadata={"source": file_path, "type": "pptx", "slide": idx, "chunk_id": idx},
-                )
-            )
-    return documents
-
-
 def load_file(file_path: str, use_ocr_if_needed: bool = True):
     """Điều phối để tải nhiều định dạng file."""
     ext = os.path.splitext(file_path)[1].lower()
@@ -97,10 +88,6 @@ def load_file(file_path: str, use_ocr_if_needed: bool = True):
         return load_pdf(file_path, use_ocr_if_needed=use_ocr_if_needed)
     if ext == ".docx":
         return load_docx(file_path)
-    if ext == ".xlsx":
-        return load_xlsx(file_path)
-    if ext == ".pptx":
-        return load_pptx(file_path)
 
     raise ValueError(f"Unsupported file type: {ext}")
 

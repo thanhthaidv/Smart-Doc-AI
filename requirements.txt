@@ -6,22 +6,19 @@ python-dotenv
 langchain
 langchain-community
 langchain-groq
+langchain-core
+langchain-text-splitters
 
 # Vector DB
 faiss-cpu
 
 # Embedding
 sentence-transformers
-transformers
-torch
 
 # PDF processing
 pdfplumber
 pypdf
-
 python-docx
-openpyxl
-python-pptx
 
 # OCR 
 pytesseract
